@@ -62,8 +62,10 @@ from ray.exceptions import RayActorError
 _WORKER_AIMDO_INIT_ATTEMPTED = False
 
 
-def _ray_actor_device_options() -> dict[str, object]:
-    if get_device_type() == "xpu":
+def _ray_actor_device_options(device_type: str | None = None) -> dict[str, object]:
+    if device_type is None:
+        device_type = get_device_type()
+    if device_type == "xpu":
         return {"resources": {"XPU": 1}}
     return {"num_gpus": 1}
 
@@ -1468,7 +1470,7 @@ def ray_comm_tester(worker_device_ids, device_type=None):
 
     for local_rank, device_id in enumerate(worker_device_ids):
         gpu_actors.append(
-            gpu_actor.options(name=f"RayTest:{local_rank}", **_ray_actor_device_options()).remote(
+            gpu_actor.options(name=f"RayTest:{local_rank}", **_ray_actor_device_options(device_type)).remote(
                 local_rank=local_rank,
                 world_size=world_size,
                 device_id=device_id,
@@ -1489,9 +1491,10 @@ def make_ray_actor_fn(world_size, parallel_dict, worker_device_ids=None):
     num_replicas = parallel_dict.get("dp_degree", 1)
     shard_size = parallel_dict.get("shard_size", world_size)
     use_group_process_group = bool(parallel_dict.get("use_group_process_group"))
+    device_type = parallel_dict.get("device_type", get_device_type())
     worker_device_ids = list(range(world_size)) if worker_device_ids is None else list(worker_device_ids)
 
-    def _init_ray_actor(world_size=world_size, parallel_dict=parallel_dict, worker_device_ids=worker_device_ids):
+    def _init_ray_actor(world_size=world_size, parallel_dict=parallel_dict, worker_device_ids=worker_device_ids, device_type=device_type):
         ray_actors = dict()
         gpu_actor = ray.remote(RayWorker)
         gpu_actors = []
@@ -1500,7 +1503,7 @@ def make_ray_actor_fn(world_size, parallel_dict, worker_device_ids=None):
             # XDiT DP stays in one global group; xFuser derives DP ranks internally.
             for local_rank, device_id in enumerate(worker_device_ids):
                 gpu_actors.append(
-                    gpu_actor.options(name=f"RayWorker:{local_rank}", **_ray_actor_device_options()).remote(
+                    gpu_actor.options(name=f"RayWorker:{local_rank}", **_ray_actor_device_options(device_type)).remote(
                         local_rank=local_rank,
                         device_id=device_id,
                         parallel_dict=parallel_dict,
@@ -1518,7 +1521,7 @@ def make_ray_actor_fn(world_size, parallel_dict, worker_device_ids=None):
                     gpu_actors.append(
                         gpu_actor.options(
                             name=f"RayWorker:{group_id}_{local_rank}",
-                            **_ray_actor_device_options(),
+                            **_ray_actor_device_options(device_type),
                         ).remote(
                             local_rank=local_rank,
                             device_id=worker_device_ids[worker_index],

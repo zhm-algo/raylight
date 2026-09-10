@@ -150,7 +150,7 @@ Its job is to split the model weights among GPUs.
   Solution : just increase Ulysses degree for now.
 - The PyTorch **NCCL** version will be replaced to `2.28.9` to fix issues with FP8 communication.
 - The PyTorch version will be `2.8.1` due to relaxed `dtype` constraints when using FSDP. You can still use `2.7.1`
-  or earlier. However, FSDP will not be function correctly in those versions.
+  or earlier. However, FSDP will not function correctly in those versions.
 - Intel XPU uses `ZE_AFFINITY_MASK` for per-worker device pinning, prefers the native `xccl`
   backend when available (commonly on newer PyTorch XPU builds such as 2.7+), and otherwise falls back to `ccl` via
   `oneccl_bindings_for_pytorch` before finally falling back to `gloo`.
@@ -229,8 +229,9 @@ This is experimental mode where all type of parallel group can work at a sime ti
 ### Intel
 1. **Arc Pro B60** : Using [LLM Scaler](https://github.com/intel/llm-scaler/blob/main/omni/README.md/#wan22).
 2. Native Intel XPU support is available through `torch.xpu` / IPEX-style PyTorch builds.
-3. Use PyTorch **2.5+**. Raylight checks for native `xccl` support at runtime and uses it when
-   available; otherwise it falls back to `ccl` when `oneccl_bindings_for_pytorch` is installed.
+3. Use PyTorch **2.5+** as the baseline for `torch.xpu` support. Raylight checks for native
+   `xccl` support at runtime and uses it when available; on many XPU builds that is typically
+   PyTorch **2.7+**, but the actual capability check is runtime-based rather than version-locked.
 4. Install hint:
    ```bash
    pip install torch --index-url https://download.pytorch.org/whl/xpu
