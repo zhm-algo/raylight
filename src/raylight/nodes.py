@@ -224,11 +224,11 @@ def _validate_xfuser_attention(attn_type: str) -> str:
     return attn_type
 
 
-def _ray_init_resource_kwargs(max_world_size: int, ray_cluster_address: str) -> dict[str, Any]:
+def _ray_init_resource_kwargs(resource_count: int, ray_cluster_address: str) -> dict[str, Any]:
     if ray_cluster_address not in _LOCAL_CLUSTER_ADDRESSES:
         return {}
     if get_device_type() == "xpu":
-        return {"resources": {"XPU": max_world_size}}
+        return {"resources": {"XPU": resource_count}}
     return {}
 
 

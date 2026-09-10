@@ -142,15 +142,15 @@ def _remap_conditioning_devices(positive, negative):
 def _remap_control_devices(control, target):
     vae = getattr(control, "vae", None)
     if vae is not None:
-        _remap_cuda_device(vae, "device", target)
-        _remap_cuda_device(vae, "output_device", target)
+        _remap_accelerator_device(vae, "device", target)
+        _remap_accelerator_device(vae, "output_device", target)
         patcher = getattr(vae, "patcher", None)
         if patcher is not None:
             _remap_patcher_device(patcher, target)
     model_wrapped = getattr(control, "control_model_wrapped", None)
     if model_wrapped is not None:
         _remap_patcher_device(model_wrapped, target)
-    _remap_cuda_device(control, "load_device", target)
+    _remap_accelerator_device(control, "load_device", target)
     prev = getattr(control, "previous_controlnet", None)
     if prev is not None:
         _remap_control_devices(prev, target)
@@ -204,11 +204,11 @@ def _prepare_control_models(positive, negative):
 
 
 def _remap_patcher_device(patcher, target):
-    _remap_cuda_device(patcher, "load_device", target)
-    _remap_cuda_device(patcher, "offload_device", target)
+    _remap_accelerator_device(patcher, "load_device", target)
+    _remap_accelerator_device(patcher, "offload_device", target)
 
 
-def _remap_cuda_device(obj, attr, target):
+def _remap_accelerator_device(obj, attr, target):
     val = getattr(obj, attr, None)
     if isinstance(val, torch.device) and val.type in {"cuda", "xpu", get_device_type()}:
         setattr(obj, attr, target)

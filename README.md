@@ -152,7 +152,7 @@ Its job is to split the model weights among GPUs.
 - The PyTorch version will be `2.8.1` due to relaxed `dtype` constraints when using FSDP. You can still use `2.7.1`
   or earlier. However, FSDP will not be function correctly in those versions.
 - Intel XPU uses `ZE_AFFINITY_MASK` for per-worker device pinning, prefers the native `xccl`
-  backend when available (PyTorch 2.7+), and otherwise falls back to `ccl` via
+  backend when available (commonly on newer PyTorch XPU builds such as 2.7+), and otherwise falls back to `ccl` via
   `oneccl_bindings_for_pytorch` before finally falling back to `gloo`.
 - Intel XPU currently runs with PyTorch SDPA attention only. Flash-attn/yunchang kernels and
   the `cudagraphs` torch.compile backend remain CUDA-only. FSDP CPU offload on XPU should be

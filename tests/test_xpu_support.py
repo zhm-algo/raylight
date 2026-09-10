@@ -72,7 +72,7 @@ def test_controlnet_device_remap_accepts_xpu():
 
     target = torch.device("xpu", 0)
     obj = Dummy()
-    module._remap_cuda_device(obj, "load_device", target)
+    module._remap_accelerator_device(obj, "load_device", target)
 
     assert obj.load_device == target
 
