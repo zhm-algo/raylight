@@ -10,6 +10,9 @@ from types import ModuleType
 
 import torch
 
+from raylight.device_utils import get_device as get_runtime_device
+from raylight.device_utils import get_dist_backend, get_device_type, is_xpu_available
+
 
 def _find_xfuser_root() -> Path | None:
     spec = importlib.util.find_spec("xfuser")
@@ -104,6 +107,9 @@ def _install_envs_stub() -> None:
     def _is_mps() -> bool:
         return torch.backends.mps.is_available()
 
+    def _is_xpu() -> bool:
+        return is_xpu_available()
+
     def _is_npu() -> bool:
         try:
             return bool(hasattr(torch, "npu") and torch.npu.is_available())
@@ -113,6 +119,8 @@ def _install_envs_stub() -> None:
     def get_device(local_rank: int) -> torch.device:
         if _is_cuda() or _is_hip():
             return torch.device("cuda", local_rank)
+        if _is_xpu():
+            return get_runtime_device(local_rank)
         if _is_musa():
             return torch.device("musa", local_rank)
         if _is_mps():
@@ -124,6 +132,8 @@ def _install_envs_stub() -> None:
     def get_torch_distributed_backend() -> str:
         if _is_cuda() or _is_hip():
             return "nccl"
+        if _is_xpu():
+            return get_dist_backend()
         if _is_musa():
             return "mccl"
         if _is_npu():
@@ -145,6 +155,7 @@ def _install_envs_stub() -> None:
     module.PACKAGES_CHECKER = _PackagesChecker()
     module._is_hip = _is_hip
     module._is_cuda = _is_cuda
+    module._is_xpu = _is_xpu
     module._is_musa = _is_musa
     module._is_mps = _is_mps
     module._is_npu = _is_npu
@@ -291,6 +302,19 @@ def _install_long_ctx_attention(xfuser_root: Path) -> None:
     long_ctx_pkg.AttnType = _RealAttnType
     long_ctx_pkg.__all__ = hybrid_pkg.__all__
 
+    ring_pkg = sys.modules["xfuser.core.long_ctx_attention.ring"]
+    if get_device_type() == "xpu":
+        def _unsupported_xpu_ring_flash_attn(*args, **kwargs):
+            raise RuntimeError(
+                "Flash-attn/yunchang ring kernels are not available on Intel XPU. "
+                "Use XFuser_attention=TORCH_FLASH to run with PyTorch scaled_dot_product_attention."
+            )
+
+        ring_pkg.xdit_ring_flash_attn_func = _unsupported_xpu_ring_flash_attn
+        ring_pkg.xdit_sana_ring_flash_attn_func = _unsupported_xpu_ring_flash_attn
+        ring_pkg.__all__ = ["xdit_ring_flash_attn_func", "xdit_sana_ring_flash_attn_func"]
+        return
+
     _torch_cuda = None
     _orig_cuda_available = None
     try:
@@ -312,7 +336,6 @@ def _install_long_ctx_attention(xfuser_root: Path) -> None:
     finally:
         if _torch_cuda is not None and _orig_cuda_available is not None:
             _torch_cuda.is_available = _orig_cuda_available
-    ring_pkg = sys.modules["xfuser.core.long_ctx_attention.ring"]
     ring_pkg.xdit_ring_flash_attn_func = ring_mod.xdit_ring_flash_attn_func
     ring_pkg.xdit_sana_ring_flash_attn_func = ring_mod.xdit_sana_ring_flash_attn_func
     ring_pkg.__all__ = ["xdit_ring_flash_attn_func", "xdit_sana_ring_flash_attn_func"]

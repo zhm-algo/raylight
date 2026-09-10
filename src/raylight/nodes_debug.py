@@ -3,11 +3,11 @@ import os
 import folder_paths
 
 import ray
-import torch
 
 # Must manually insert comfy package or ray cannot import raylight to cluster
 from comfy import sd, sample, utils
 from .distributed_worker.ray_worker import make_ray_actor_fn, ensure_fresh_actors, ray_nccl_tester
+from .device_utils import device_count
 
 
 class RayInitializerDebug:
@@ -72,7 +72,7 @@ class RayInitializerDebug:
         self.parallel_dict = dict()
 
         world_size = GPU
-        max_world_size = torch.cuda.device_count()
+        max_world_size = device_count()
         if world_size > max_world_size:
             raise ValueError("Too many gpus")
         if world_size == 0:

@@ -11,6 +11,7 @@ from comfy.patcher_extension import WrappersMP
 from comfy_extras.nodes_easycache import EasyCacheHolder
 
 from .ray_patch_decorator import ray_patch
+from ..device_utils import current_device_index, get_device, get_device_type
 
 
 class DistributedCacheMixin:
@@ -36,12 +37,8 @@ class DistributedCacheMixin:
         self._sync_device = torch.device("cpu")
         if self._distributed:
             backend = str(self._dist_backend or "").lower()
-            if backend in {"nccl", "cuda"} and torch.cuda.is_available():
-                try:
-                    current_device = torch.cuda.current_device()
-                except RuntimeError:
-                    current_device = 0
-                self._sync_device = torch.device("cuda", current_device)
+            if backend in {"nccl", "cuda", "xccl", "ccl", "xpu"} and get_device_type() != "cpu":
+                self._sync_device = get_device(current_device_index())
             else:
                 self._sync_device = torch.device("cpu")
 

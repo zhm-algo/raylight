@@ -17,6 +17,7 @@ from comfy.patcher_extension import CallbacksMP
 from comfy.model_patcher import get_key_weight, string_to_seed, move_weight_functions
 
 from raylight import comfy_dist
+from raylight.device_utils import current_device_index, get_device
 from .fsdp_utils import freeze_and_detect_qt, fully_shard_bottom_up, load_from_full_model_state_dict, materialize_excluded_params
 
 if TYPE_CHECKING:
@@ -270,7 +271,7 @@ def patch_fsdp(self):
     )
 
     target_device = (
-        self.load_device if isinstance(self.load_device, torch.device) else torch.device("cuda", torch.cuda.current_device())
+        self.load_device if isinstance(self.load_device, torch.device) else get_device(current_device_index())
     )
 
     if use_quant_loader:

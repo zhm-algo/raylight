@@ -1,5 +1,7 @@
 import torch
 
+from raylight.device_utils import get_device, get_device_type
+
 
 class _RayControlNetRef:
     """Lightweight placeholder for a ControlNet in conditioning.
@@ -112,14 +114,13 @@ def _restore_controlnet_refs(cond_list, cached_controlnet, worker_vae=None):
 
 
 def _remap_conditioning_devices(positive, negative):
-    """Remap CUDA device references in conditioning to cuda:0.
+    """Remap accelerator device references in conditioning to the worker device.
 
-    Conditioning is created in the main ComfyUI process where CUDA device
-    indices map to physical GPUs.  Inside a ray worker, CUDA_VISIBLE_DEVICES
-    is set to a single physical GPU, so only cuda:0 is valid.  Any model
-    device (VAE, ControlNet, etc.) that references cuda:N (N>0) will fail.
+    Conditioning is created in the main ComfyUI process where accelerator
+    indices map to physical devices. Inside a ray worker the active visibility
+    mask exposes only one device, so only device 0 is valid there.
     """
-    target = torch.device("cuda:0")
+    target = get_device(0)
     for cond_list in (positive, negative):
         if cond_list is None:
             continue
@@ -184,7 +185,7 @@ def _move_control_to_device(control, device):
 
 def _prepare_control_models(positive, negative):
     """Remap devices AND move ControlNet model weights to the worker's GPU."""
-    target = torch.device("cuda:0")
+    target = get_device(0)
     for cond_list in (positive, negative):
         if cond_list is None:
             continue
@@ -209,5 +210,5 @@ def _remap_patcher_device(patcher, target):
 
 def _remap_cuda_device(obj, attr, target):
     val = getattr(obj, attr, None)
-    if isinstance(val, torch.device) and val.type == "cuda":
+    if isinstance(val, torch.device) and val.type in {"cuda", "xpu", get_device_type()}:
         setattr(obj, attr, target)
