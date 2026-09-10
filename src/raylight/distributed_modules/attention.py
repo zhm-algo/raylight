@@ -3,6 +3,7 @@ from xfuser.core.long_ctx_attention import (
 )
 
 from yunchang.kernels import AttnType
+from raylight.device_utils import get_device_type
 from .sageattention_hf_patch import ensure_hf_fp8_cuda_kernel, ensure_hf_sm90_kernel
 
 _ATTN_TYPE = None
@@ -35,6 +36,11 @@ def get_sync_ulysses():
 
 def make_xfuser_attention(attn_type, sync_ulysses):
     print(f"Using XFuser {attn_type} attention, Sync Ulysses: {sync_ulysses}")
+    if get_device_type() == "xpu" and attn_type != "TORCH_FLASH":
+        raise RuntimeError(
+            f"XFuser attention backend {attn_type} is not available on Intel XPU. "
+            "Use TORCH_FLASH to fall back to PyTorch scaled_dot_product_attention."
+        )
     attn = AttnType[attn_type]
     if attn_type == "SAGE_FP8_CUDA":
         ensure_hf_fp8_cuda_kernel()

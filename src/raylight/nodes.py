@@ -15,16 +15,13 @@ import folder_paths
 from comfy.cli_args import args as comfy_args
 from yunchang.kernels import AttnType
 
-# For naming style with comfyui equivalent nodes use "[Name of Nodes] (Ray)"
-# Must manually insert comfy package or ray cannot import raylight to cluster
-from comfy import sd, sample, utils  # type: ignore
-
 from .distributed_worker.ray_worker import (
     make_ray_actor_fn,
     ensure_fresh_actors,
-    ray_nccl_tester,
+    ray_comm_tester,
 )
 from .distributed_worker.ray_worker_vae import combine_dist_vae_partials, combine_seedvr2_vae_partials
+from .device_utils import device_count, get_device_type, get_dist_backend, get_visible_devices_env_var
 
 
 class AnyType(str):
@@ -113,6 +110,9 @@ def _ensure_runtime_workdir(module_dir: Path) -> Path:
 
 
 def _sanitized_worker_alloc_conf():
+    if get_device_type() != "cuda":
+        return None
+
     if os.environ.get("RAYLIGHT_KEEP_CUDA_MALLOC_ASYNC") == "1":
         return None
 
@@ -210,6 +210,26 @@ def _parse_gpu_select(gpu_select: str | None) -> tuple[int, ...] | None:
     if not selected:
         return None
     return tuple(selected)
+
+
+def _validate_xfuser_attention(attn_type: str) -> str:
+    if get_device_type() != "xpu":
+        return attn_type
+
+    if attn_type != "TORCH_FLASH":
+        raise ValueError(
+            f"XFuser_attention={attn_type} is not supported on Intel XPU. "
+            "Use TORCH_FLASH to fall back to PyTorch scaled_dot_product_attention."
+        )
+    return attn_type
+
+
+def _ray_init_resource_kwargs(resource_count: int, ray_cluster_address: str) -> dict[str, Any]:
+    if ray_cluster_address not in _LOCAL_CLUSTER_ADDRESSES:
+        return {}
+    if get_device_type() == "xpu":
+        return {"resources": {"XPU": resource_count}}
+    return {}
 
 
 def _build_remote_runtime_env(module_dir: Path, repo_root: Path):
@@ -504,10 +524,12 @@ class RayInitializer:
         effective_ring_degree = ring_degree
 
         selected_gpus = _parse_gpu_select(GPU_SELECT)
+        device_type = get_device_type()
+        visible_device_env = get_visible_devices_env_var()
         if selected_gpus is None:
-            max_world_size = torch.cuda.device_count()
+            max_world_size = device_count()
         else:
-            visible_gpu_count = torch.cuda.device_count()
+            visible_gpu_count = device_count()
             invalid = [gpu_idx for gpu_idx in selected_gpus if gpu_idx >= visible_gpu_count]
             if invalid:
                 raise ValueError(f"GPU_SELECT contains GPU index outside visible range 0-{visible_gpu_count - 1}: {invalid}")
@@ -516,6 +538,7 @@ class RayInitializer:
             raise ValueError(f"Too many gpus: requested {world_size} but only {max_world_size} selected/visible")
         if world_size == 0:
             raise ValueError("Num of cuda/cudalike device is 0")
+        worker_device_ids = list(selected_gpus) if selected_gpus is not None else list(range(world_size))
         if world_size < effective_ulysses_degree * effective_ring_degree * cfg_degree:
             raise ValueError(
                 f"ERROR, num_gpus: {world_size}, is lower than "
@@ -537,6 +560,7 @@ class RayInitializer:
         self.parallel_dict["sync_ulysses"] = False
         self.parallel_dict["global_world_size"] = world_size
         self.parallel_dict["shard_size"] = shard_size
+        self.parallel_dict["device_type"] = device_type
         self.parallel_dict["use_group_process_group"] = False
         self.parallel_dict["use_mmap"] = use_mmap
         self.parallel_dict["pp_degree"] = 1
@@ -562,7 +586,7 @@ class RayInitializer:
                     "GPU count must equal dp_degree x ulysses_degree x ring_degree x cfg_degree: "
                     f"{world_size} != {effective_dp_degree} x {effective_ulysses_degree} x {effective_ring_degree} x {cfg_degree}"
                 )
-            self.parallel_dict["attention"] = XFuser_attention
+            self.parallel_dict["attention"] = _validate_xfuser_attention(XFuser_attention)
             self.parallel_dict["is_xdit"] = True
             self.parallel_dict["ulysses_degree"] = effective_ulysses_degree
             self.parallel_dict["ring_degree"] = effective_ring_degree
@@ -590,9 +614,8 @@ class RayInitializer:
         if ray_cluster_address not in _LOCAL_CLUSTER_ADDRESSES:
             runtime_env_base = deepcopy(_RAY_RUNTIME_ENV_REMOTE)
 
-        if selected_gpus is not None:
-            # Adapted from avtc's Ray GPU visibility restriction idea.
-            runtime_env_base.setdefault("env_vars", {})["CUDA_VISIBLE_DEVICES"] = ",".join(str(gpu_idx) for gpu_idx in selected_gpus)
+        if selected_gpus is not None and visible_device_env is not None:
+            runtime_env_base.setdefault("env_vars", {})[visible_device_env] = ",".join(str(gpu_idx) for gpu_idx in selected_gpus)
 
         _inject_worker_cli_args(runtime_env_base)
 
@@ -604,10 +627,12 @@ class RayInitializer:
             ray.shutdown()
             _cleanup_ray_temp()
             RayControlNetLoader._current_controlnet_path = None
-            original_cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-            restricted_cuda_visible_devices = runtime_env_base.get("env_vars", {}).get("CUDA_VISIBLE_DEVICES")
-            if restricted_cuda_visible_devices is not None:
-                os.environ["CUDA_VISIBLE_DEVICES"] = restricted_cuda_visible_devices
+            original_visible_devices = os.environ.get(visible_device_env) if visible_device_env is not None else None
+            restricted_visible_devices = (
+                runtime_env_base.get("env_vars", {}).get(visible_device_env) if visible_device_env is not None else None
+            )
+            if visible_device_env is not None and restricted_visible_devices is not None:
+                os.environ[visible_device_env] = restricted_visible_devices
             try:
                 ray.init(
                     ray_cluster_address,
@@ -617,34 +642,38 @@ class RayInitializer:
                     include_dashboard=enable_dashboard,
                     dashboard_host=dashboard_host,
                     dashboard_port=dashboard_port,
+                    **_ray_init_resource_kwargs(max_world_size, ray_cluster_address),
                 )
             finally:
-                if restricted_cuda_visible_devices is not None:
-                    if original_cuda_visible_devices is not None:
-                        os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_visible_devices
+                if visible_device_env is not None and restricted_visible_devices is not None:
+                    if original_visible_devices is not None:
+                        os.environ[visible_device_env] = original_visible_devices
                     else:
-                        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+                        os.environ.pop(visible_device_env, None)
         except Exception as e:
             ray.shutdown()
             _cleanup_ray_temp()
-            if restricted_cuda_visible_devices is not None:
-                os.environ["CUDA_VISIBLE_DEVICES"] = restricted_cuda_visible_devices
+            if visible_device_env is not None and restricted_visible_devices is not None:
+                os.environ[visible_device_env] = restricted_visible_devices
             try:
-                ray.init(runtime_env=deepcopy(runtime_env_base))
+                ray.init(
+                    runtime_env=deepcopy(runtime_env_base),
+                    **_ray_init_resource_kwargs(max_world_size, ray_cluster_address),
+                )
             finally:
-                if restricted_cuda_visible_devices is not None:
-                    if original_cuda_visible_devices is not None:
-                        os.environ["CUDA_VISIBLE_DEVICES"] = original_cuda_visible_devices
+                if visible_device_env is not None and restricted_visible_devices is not None:
+                    if original_visible_devices is not None:
+                        os.environ[visible_device_env] = original_visible_devices
                     else:
-                        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+                        os.environ.pop(visible_device_env, None)
             raise RuntimeError(f"Ray connection failed: {e}")
 
         if not skip_comm_test:
-            print("Running NCCL communication test...")
-            ray_nccl_tester(world_size)
+            print(f"Running {get_dist_backend().upper()} communication test...")
+            ray_comm_tester(worker_device_ids, device_type=device_type)
         else:
-            print("Skipping NCCL test (skip_comm_test=True)")
-        ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict)
+            print("Skipping communication test (skip_comm_test=True)")
+        ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict, worker_device_ids=worker_device_ids)
         ray_actors = ray_actor_fn()
         return ([ray_actors, ray_actor_fn],)
 

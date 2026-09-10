@@ -3,11 +3,10 @@ import os
 import folder_paths
 
 import ray
-import torch
 
 # Must manually insert comfy package or ray cannot import raylight to cluster
-from comfy import sd, sample, utils
-from .distributed_worker.ray_worker import make_ray_actor_fn, ensure_fresh_actors, ray_nccl_tester
+from .distributed_worker.ray_worker import make_ray_actor_fn, ray_comm_tester
+from .device_utils import device_count, get_device_type
 
 
 class RayInitializerDebug:
@@ -72,7 +71,7 @@ class RayInitializerDebug:
         self.parallel_dict = dict()
 
         world_size = GPU
-        max_world_size = torch.cuda.device_count()
+        max_world_size = device_count()
         if world_size > max_world_size:
             raise ValueError("Too many gpus")
         if world_size == 0:
@@ -86,6 +85,7 @@ class RayInitializerDebug:
         self.parallel_dict["is_fsdp"] = False
         self.parallel_dict["sync_ulysses"] = False
         self.parallel_dict["global_world_size"] = world_size
+        self.parallel_dict["device_type"] = get_device_type()
         self.parallel_dict["pp_degree"] = 1
         self.parallel_dict["pipefusion_enabled"] = False
         self.parallel_dict["num_pipeline_patch"] = 1
@@ -128,7 +128,7 @@ class RayInitializerDebug:
             )
             raise RuntimeError(f"Ray connection failed: {e}")
 
-        ray_nccl_tester(world_size)
+        ray_comm_tester(list(range(world_size)), device_type=get_device_type())
         ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict)
         ray_actors = ray_actor_fn()
         return ([ray_actors, ray_actor_fn],)

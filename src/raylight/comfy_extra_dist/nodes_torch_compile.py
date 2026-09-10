@@ -1,5 +1,6 @@
 from comfy_api.torch_helpers import set_torch_compile_wrapper
 from .ray_patch_decorator import ray_patch
+from ..device_utils import get_device_type
 
 
 def skip_torch_compile_dict(guard_entries):
@@ -23,6 +24,9 @@ class RayTorchCompileModel:
 
     @ray_patch
     def patch(self, model, backend):
+        if backend == "cudagraphs" and get_device_type() != "cuda":
+            print("Compiler cudagraphs is CUDA-only; falling back to inductor on this device")
+            backend = "inductor"
         print(f"Compiler {backend} registered")
         m = model.clone(disable_dynamic=True)
         set_torch_compile_wrapper(model=m, backend=backend, options={"guard_filter_fn": skip_torch_compile_dict})

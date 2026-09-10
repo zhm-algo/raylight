@@ -150,7 +150,13 @@ Its job is to split the model weights among GPUs.
   Solution : just increase Ulysses degree for now.
 - The PyTorch **NCCL** version will be replaced to `2.28.9` to fix issues with FP8 communication.
 - The PyTorch version will be `2.8.1` due to relaxed `dtype` constraints when using FSDP. You can still use `2.7.1`
-  or earlier. However, FSDP will not be function correctly in those versions.
+  or earlier. However, FSDP will not function correctly in those versions.
+- Intel XPU uses `ZE_AFFINITY_MASK` for per-worker device pinning, prefers the native `xccl`
+  backend when available (commonly on newer PyTorch XPU builds such as 2.7+), and otherwise falls back to `ccl` via
+  `oneccl_bindings_for_pytorch` before finally falling back to `gloo`.
+- Intel XPU currently runs with PyTorch SDPA attention only. Flash-attn/yunchang kernels and
+  the `cudagraphs` torch.compile backend remain CUDA-only. FSDP CPU offload on XPU should be
+  treated as experimental.
 
 ## Operation
 
@@ -222,6 +228,21 @@ This is experimental mode where all type of parallel group can work at a sime ti
 
 ### Intel
 1. **Arc Pro B60** : Using [LLM Scaler](https://github.com/intel/llm-scaler/blob/main/omni/README.md/#wan22).
+2. Native Intel XPU support is available through `torch.xpu` / IPEX-style PyTorch builds.
+3. Use PyTorch **2.5+** as the baseline for `torch.xpu` support. Raylight checks for native
+   `xccl` support at runtime and uses it when available; on many XPU builds that is typically
+   PyTorch **2.7+**, but the actual capability check is runtime-based rather than version-locked.
+4. Install hint:
+   ```bash
+   pip install torch --index-url https://download.pytorch.org/whl/xpu
+   ```
+5. To restrict workers to specific Intel GPUs manually, set `ZE_AFFINITY_MASK`. When you use
+   `GPU_SELECT`, Raylight pins each worker to one selected Intel GPU with its own per-worker
+   `ZE_AFFINITY_MASK` value instead of treating it like a CUDA-style comma-separated mask.
+6. Known XPU limitations:
+   - xFuser attention must use the PyTorch SDPA/TORCH backend.
+   - `torch.compile(..., backend="cudagraphs")` is CUDA-only; use `inductor`.
+   - FSDP CPU offload support on XPU is not well-tested yet.
 
 
 ## Supported Models
@@ -404,7 +425,13 @@ https://github.com/user-attachments/assets/d5e262c7-16d5-4260-b847-27be2d809920
 3. Install dependencies:
    your_python_env - pip install -r requirements.txt
 4. Install `pip install nvidia-nccl-cu12==2.28.9`, this is only needed if you are using FSDP with fp8 models with Nvidia GPUs
-5. Install FlashAttention 2 (optional):
+5. For Intel XPU builds, install an XPU-enabled PyTorch first:
+   ```bash
+   pip install torch --index-url https://download.pytorch.org/whl/xpu
+   ```
+   If your PyTorch build does not expose native `xccl`, also install `oneccl_bindings_for_pytorch` so
+   distributed workers can fall back to the `ccl` backend.
+6. Install FlashAttention 2 (optional, CUDA/ROCm only):
    - Option A (NOT recommended due to long build time):
      pip install flash-attn --no-build-isolation
    - Option B (recommended, use prebuilt wheel):
@@ -417,8 +444,11 @@ https://github.com/user-attachments/assets/d5e262c7-16d5-4260-b847-27be2d809920
        ```
      For other versions, check:
         https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/
-6. Attention backend can be install like any other libs e.g: SageAttn, AITER, FA3 (optional)
-7. Restart ComfyUI.
+7. Attention backend can be install like any other libs e.g: SageAttn, AITER, FA3 (optional)
+   but Intel XPU should stay on the default TORCH/SDPA backend.
+8. Use `ZE_AFFINITY_MASK` if you want to pin a process to a specific Intel GPU. For multi-worker
+   Raylight runs, prefer `GPU_SELECT` so each worker gets its own per-worker XPU affinity mask.
+9. Restart ComfyUI.
 
 **ComfyUI Manager**
 1. Find raylight in the manager and install it.
