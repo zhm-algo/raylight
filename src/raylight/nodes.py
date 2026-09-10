@@ -18,7 +18,7 @@ from yunchang.kernels import AttnType
 from .distributed_worker.ray_worker import (
     make_ray_actor_fn,
     ensure_fresh_actors,
-    ray_nccl_tester,
+    ray_comm_tester,
 )
 from .distributed_worker.ray_worker_vae import combine_dist_vae_partials, combine_seedvr2_vae_partials
 from .device_utils import device_count, get_device_type, get_dist_backend, get_visible_devices_env_var
@@ -670,7 +670,7 @@ class RayInitializer:
 
         if not skip_comm_test:
             print(f"Running {get_dist_backend().upper()} communication test...")
-            ray_nccl_tester(worker_device_ids)
+            ray_comm_tester(worker_device_ids)
         else:
             print("Skipping communication test (skip_comm_test=True)")
         ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict, worker_device_ids=worker_device_ids)

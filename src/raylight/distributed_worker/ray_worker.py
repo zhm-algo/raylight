@@ -1460,7 +1460,7 @@ class RayCOMMTester:
         ray.actor.exit_actor()
 
 
-def ray_nccl_tester(worker_device_ids):
+def ray_comm_tester(worker_device_ids):
     world_size = len(worker_device_ids)
     gpu_actor = ray.remote(RayCOMMTester)
     gpu_actors = []
@@ -1478,6 +1478,9 @@ def ray_nccl_tester(worker_device_ids):
 
     for actor in gpu_actors:
         actor.kill.remote()
+
+
+ray_nccl_tester = ray_comm_tester
 
 
 def make_ray_actor_fn(world_size, parallel_dict, worker_device_ids=None):

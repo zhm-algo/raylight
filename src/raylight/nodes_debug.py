@@ -5,7 +5,7 @@ import folder_paths
 import ray
 
 # Must manually insert comfy package or ray cannot import raylight to cluster
-from .distributed_worker.ray_worker import make_ray_actor_fn, ray_nccl_tester
+from .distributed_worker.ray_worker import make_ray_actor_fn, ray_comm_tester
 from .device_utils import device_count
 
 
@@ -127,7 +127,7 @@ class RayInitializerDebug:
             )
             raise RuntimeError(f"Ray connection failed: {e}")
 
-        ray_nccl_tester(list(range(world_size)))
+        ray_comm_tester(list(range(world_size)))
         ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict)
         ray_actors = ray_actor_fn()
         return ([ray_actors, ray_actor_fn],)
