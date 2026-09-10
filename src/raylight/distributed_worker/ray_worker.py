@@ -18,7 +18,6 @@ from raylight.device_utils import (
     get_device,
     get_device_type,
     get_dist_backend,
-    get_visible_devices_env_var,
     ipc_collect,
     set_device,
     synchronize,
@@ -411,15 +410,17 @@ class RayWorker:
 
         self.device_id = device_id
         self.parallel_dict = parallel_dict
-        visible_device_env = get_visible_devices_env_var()
+        runtime_device_type = self.parallel_dict.get("device_type")
+        if runtime_device_type is None:
+            runtime_device_type = get_device_type()
         local_device_index = 0
-        if visible_device_env is not None and get_device_type() == "xpu":
-            os.environ[visible_device_env] = str(self.device_id)
+        if runtime_device_type == "xpu":
+            os.environ["ZE_AFFINITY_MASK"] = str(self.device_id)
         set_device(local_device_index)
         self.device = get_device(local_device_index)
         self.device_mesh = None
         self.compute_capability = 0
-        if get_device_type() == "cuda":
+        if runtime_device_type == "cuda":
             self.compute_capability = int("{}{}".format(*torch.cuda.get_device_capability()))
         self.pipefusion_config = PipeFusionConfig.from_parallel_dict(self.parallel_dict)
         self.pipefusion_stage = None
@@ -1425,11 +1426,10 @@ class RayWorker:
 
 
 class RayCOMMTester:
-    def __init__(self, local_rank, world_size, device_id):
-        visible_device_env = get_visible_devices_env_var()
+    def __init__(self, local_rank, world_size, device_id, device_type):
         local_device_index = 0
-        if visible_device_env is not None and get_device_type() == "xpu":
-            os.environ[visible_device_env] = str(device_id)
+        if device_type == "xpu":
+            os.environ["ZE_AFFINITY_MASK"] = str(device_id)
         set_device(local_device_index)
         device = get_device(local_device_index)
 
@@ -1460,8 +1460,9 @@ class RayCOMMTester:
         ray.actor.exit_actor()
 
 
-def ray_comm_tester(worker_device_ids):
+def ray_comm_tester(worker_device_ids, device_type=None):
     world_size = len(worker_device_ids)
+    device_type = get_device_type() if device_type is None else device_type
     gpu_actor = ray.remote(RayCOMMTester)
     gpu_actors = []
 
@@ -1471,6 +1472,7 @@ def ray_comm_tester(worker_device_ids):
                 local_rank=local_rank,
                 world_size=world_size,
                 device_id=device_id,
+                device_type=device_type,
             )
         )
     for actor in gpu_actors:

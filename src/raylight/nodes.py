@@ -560,6 +560,7 @@ class RayInitializer:
         self.parallel_dict["sync_ulysses"] = False
         self.parallel_dict["global_world_size"] = world_size
         self.parallel_dict["shard_size"] = shard_size
+        self.parallel_dict["device_type"] = device_type
         self.parallel_dict["use_group_process_group"] = False
         self.parallel_dict["use_mmap"] = use_mmap
         self.parallel_dict["pp_degree"] = 1
@@ -613,8 +614,7 @@ class RayInitializer:
         if ray_cluster_address not in _LOCAL_CLUSTER_ADDRESSES:
             runtime_env_base = deepcopy(_RAY_RUNTIME_ENV_REMOTE)
 
-        if selected_gpus is not None and visible_device_env is not None and device_type != "xpu":
-            # Adapted from avtc's Ray GPU visibility restriction idea.
+        if selected_gpus is not None and visible_device_env is not None:
             runtime_env_base.setdefault("env_vars", {})[visible_device_env] = ",".join(str(gpu_idx) for gpu_idx in selected_gpus)
 
         _inject_worker_cli_args(runtime_env_base)
@@ -670,7 +670,7 @@ class RayInitializer:
 
         if not skip_comm_test:
             print(f"Running {get_dist_backend().upper()} communication test...")
-            ray_comm_tester(worker_device_ids)
+            ray_comm_tester(worker_device_ids, device_type=device_type)
         else:
             print("Skipping communication test (skip_comm_test=True)")
         ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict, worker_device_ids=worker_device_ids)

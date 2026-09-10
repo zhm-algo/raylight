@@ -229,9 +229,8 @@ This is experimental mode where all type of parallel group can work at a sime ti
 ### Intel
 1. **Arc Pro B60** : Using [LLM Scaler](https://github.com/intel/llm-scaler/blob/main/omni/README.md/#wan22).
 2. Native Intel XPU support is available through `torch.xpu` / IPEX-style PyTorch builds.
-3. Use PyTorch **2.5+**. For current multi-GPU distributed support, PyTorch **2.7+** is recommended
-   so Raylight can use the native `xccl` backend. Older XPU builds fall back to `ccl` when
-   `oneccl_bindings_for_pytorch` is installed.
+3. Use PyTorch **2.5+**. Raylight checks for native `xccl` support at runtime and uses it when
+   available; otherwise it falls back to `ccl` when `oneccl_bindings_for_pytorch` is installed.
 4. Install hint:
    ```bash
    pip install torch --index-url https://download.pytorch.org/whl/xpu
@@ -429,7 +428,7 @@ https://github.com/user-attachments/assets/d5e262c7-16d5-4260-b847-27be2d809920
    ```bash
    pip install torch --index-url https://download.pytorch.org/whl/xpu
    ```
-   On PyTorch versions without native `xccl`, also install `oneccl_bindings_for_pytorch` so
+   If your PyTorch build does not expose native `xccl`, also install `oneccl_bindings_for_pytorch` so
    distributed workers can fall back to the `ccl` backend.
 6. Install FlashAttention 2 (optional, CUDA/ROCm only):
    - Option A (NOT recommended due to long build time):
