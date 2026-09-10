@@ -411,6 +411,9 @@ class RayWorker:
 
         self.device_id = device_id
         self.parallel_dict = parallel_dict
+        visible_device_env = get_visible_devices_env_var()
+        if visible_device_env is not None:
+            os.environ[visible_device_env] = str(self.device_id)
         set_device(self.device_id)
         self.device = get_device(self.device_id)
         self.device_mesh = None
@@ -426,9 +429,6 @@ class RayWorker:
 
         os.environ["XDIT_LOGGING_LEVEL"] = "WARN"
         os.environ["NCCL_DEBUG"] = "WARN"
-        visible_device_env = get_visible_devices_env_var()
-        if visible_device_env is not None:
-            os.environ[visible_device_env] = str(self.device_id)
         _enable_worker_dynamic_vram(worker_cli_args)
         _apply_worker_late_comfy_cli_args(worker_cli_args)
 
@@ -1425,11 +1425,11 @@ class RayWorker:
 
 class RayCOMMTester:
     def __init__(self, local_rank, world_size, device_id):
-        set_device(device_id)
-        device = get_device(device_id)
         visible_device_env = get_visible_devices_env_var()
         if visible_device_env is not None:
             os.environ[visible_device_env] = str(device_id)
+        set_device(device_id)
+        device = get_device(device_id)
 
         dist.init_process_group(
             get_dist_backend(),

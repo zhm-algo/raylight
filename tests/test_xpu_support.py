@@ -50,6 +50,20 @@ def test_device_utils_falls_back_to_oneccl_for_xpu(monkeypatch):
     assert device_utils.get_dist_backend() == "ccl"
 
 
+def test_device_utils_falls_back_to_gloo_for_xpu(monkeypatch):
+    class FakeXPU:
+        @staticmethod
+        def is_available():
+            return True
+
+    monkeypatch.setattr(device_utils.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(device_utils.torch, "xpu", FakeXPU(), raising=False)
+    monkeypatch.setattr(device_utils.dist, "is_xccl_available", lambda: False, raising=False)
+    sys.modules.pop("oneccl_bindings_for_pytorch", None)
+
+    assert device_utils.get_dist_backend() == "gloo"
+
+
 def test_controlnet_device_remap_accepts_xpu():
     module = importlib.import_module("src.raylight.distributed_worker.ray_worker_controlnet")
 
