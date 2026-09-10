@@ -151,9 +151,9 @@ Its job is to split the model weights among GPUs.
 - The PyTorch **NCCL** version will be replaced to `2.28.9` to fix issues with FP8 communication.
 - The PyTorch version will be `2.8.1` due to relaxed `dtype` constraints when using FSDP. You can still use `2.7.1`
   or earlier. However, FSDP will not be function correctly in those versions.
-- Intel XPU uses `ZE_AFFINITY_MASK` instead of `CUDA_VISIBLE_DEVICES`, prefers the native `xccl`
+- Intel XPU uses `ZE_AFFINITY_MASK` for per-worker device pinning, prefers the native `xccl`
   backend when available (PyTorch 2.7+), and otherwise falls back to `ccl` via
-  `oneccl_bindings_for_pytorch`.
+  `oneccl_bindings_for_pytorch` before finally falling back to `gloo`.
 - Intel XPU currently runs with PyTorch SDPA attention only. Flash-attn/yunchang kernels and
   the `cudagraphs` torch.compile backend remain CUDA-only. FSDP CPU offload on XPU should be
   treated as experimental.
@@ -236,8 +236,9 @@ This is experimental mode where all type of parallel group can work at a sime ti
    ```bash
    pip install torch --index-url https://download.pytorch.org/whl/xpu
    ```
-5. To restrict workers to specific Intel GPUs, set `ZE_AFFINITY_MASK` (Raylight uses the same
-   variable internally when `GPU_SELECT` is set).
+5. To restrict workers to specific Intel GPUs manually, set `ZE_AFFINITY_MASK`. When you use
+   `GPU_SELECT`, Raylight pins each worker to one selected Intel GPU with its own per-worker
+   `ZE_AFFINITY_MASK` value instead of treating it like a CUDA-style comma-separated mask.
 6. Known XPU limitations:
    - xFuser attention must use the PyTorch SDPA/TORCH backend.
    - `torch.compile(..., backend="cudagraphs")` is CUDA-only; use `inductor`.
@@ -445,7 +446,8 @@ https://github.com/user-attachments/assets/d5e262c7-16d5-4260-b847-27be2d809920
         https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/
 7. Attention backend can be install like any other libs e.g: SageAttn, AITER, FA3 (optional)
    but Intel XPU should stay on the default TORCH/SDPA backend.
-8. Use `ZE_AFFINITY_MASK` if you want to limit Raylight to specific Intel GPUs.
+8. Use `ZE_AFFINITY_MASK` if you want to pin a process to a specific Intel GPU. For multi-worker
+   Raylight runs, prefer `GPU_SELECT` so each worker gets its own per-worker XPU affinity mask.
 9. Restart ComfyUI.
 
 **ComfyUI Manager**

@@ -524,6 +524,7 @@ class RayInitializer:
         effective_ring_degree = ring_degree
 
         selected_gpus = _parse_gpu_select(GPU_SELECT)
+        device_type = get_device_type()
         visible_device_env = get_visible_devices_env_var()
         if selected_gpus is None:
             max_world_size = device_count()
@@ -537,6 +538,7 @@ class RayInitializer:
             raise ValueError(f"Too many gpus: requested {world_size} but only {max_world_size} selected/visible")
         if world_size == 0:
             raise ValueError("Num of cuda/cudalike device is 0")
+        worker_device_ids = list(selected_gpus) if selected_gpus is not None else list(range(world_size))
         if world_size < effective_ulysses_degree * effective_ring_degree * cfg_degree:
             raise ValueError(
                 f"ERROR, num_gpus: {world_size}, is lower than "
@@ -611,7 +613,7 @@ class RayInitializer:
         if ray_cluster_address not in _LOCAL_CLUSTER_ADDRESSES:
             runtime_env_base = deepcopy(_RAY_RUNTIME_ENV_REMOTE)
 
-        if selected_gpus is not None and visible_device_env is not None:
+        if selected_gpus is not None and visible_device_env is not None and device_type != "xpu":
             # Adapted from avtc's Ray GPU visibility restriction idea.
             runtime_env_base.setdefault("env_vars", {})[visible_device_env] = ",".join(str(gpu_idx) for gpu_idx in selected_gpus)
 
@@ -668,10 +670,10 @@ class RayInitializer:
 
         if not skip_comm_test:
             print(f"Running {get_dist_backend().upper()} communication test...")
-            ray_nccl_tester(world_size)
+            ray_nccl_tester(worker_device_ids)
         else:
             print("Skipping communication test (skip_comm_test=True)")
-        ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict)
+        ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict, worker_device_ids=worker_device_ids)
         ray_actors = ray_actor_fn()
         return ([ray_actors, ray_actor_fn],)
 

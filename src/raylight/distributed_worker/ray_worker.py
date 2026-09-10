@@ -412,10 +412,11 @@ class RayWorker:
         self.device_id = device_id
         self.parallel_dict = parallel_dict
         visible_device_env = get_visible_devices_env_var()
-        if visible_device_env is not None:
+        local_device_index = 0
+        if visible_device_env is not None and get_device_type() == "xpu":
             os.environ[visible_device_env] = str(self.device_id)
-        set_device(self.device_id)
-        self.device = get_device(self.device_id)
+        set_device(local_device_index)
+        self.device = get_device(local_device_index)
         self.device_mesh = None
         self.compute_capability = 0
         if get_device_type() == "cuda":
@@ -1426,10 +1427,11 @@ class RayWorker:
 class RayCOMMTester:
     def __init__(self, local_rank, world_size, device_id):
         visible_device_env = get_visible_devices_env_var()
-        if visible_device_env is not None:
+        local_device_index = 0
+        if visible_device_env is not None and get_device_type() == "xpu":
             os.environ[visible_device_env] = str(device_id)
-        set_device(device_id)
-        device = get_device(device_id)
+        set_device(local_device_index)
+        device = get_device(local_device_index)
 
         dist.init_process_group(
             get_dist_backend(),
@@ -1458,16 +1460,17 @@ class RayCOMMTester:
         ray.actor.exit_actor()
 
 
-def ray_nccl_tester(world_size):
+def ray_nccl_tester(worker_device_ids):
+    world_size = len(worker_device_ids)
     gpu_actor = ray.remote(RayCOMMTester)
     gpu_actors = []
 
-    for local_rank in range(world_size):
+    for local_rank, device_id in enumerate(worker_device_ids):
         gpu_actors.append(
             gpu_actor.options(name=f"RayTest:{local_rank}", **_ray_actor_device_options()).remote(
                 local_rank=local_rank,
                 world_size=world_size,
-                device_id=0,
+                device_id=device_id,
             )
         )
     for actor in gpu_actors:
@@ -1477,23 +1480,24 @@ def ray_nccl_tester(world_size):
         actor.kill.remote()
 
 
-def make_ray_actor_fn(world_size, parallel_dict):
+def make_ray_actor_fn(world_size, parallel_dict, worker_device_ids=None):
     num_replicas = parallel_dict.get("dp_degree", 1)
     shard_size = parallel_dict.get("shard_size", world_size)
     use_group_process_group = bool(parallel_dict.get("use_group_process_group"))
+    worker_device_ids = list(range(world_size)) if worker_device_ids is None else list(worker_device_ids)
 
-    def _init_ray_actor(world_size=world_size, parallel_dict=parallel_dict):
+    def _init_ray_actor(world_size=world_size, parallel_dict=parallel_dict, worker_device_ids=worker_device_ids):
         ray_actors = dict()
         gpu_actor = ray.remote(RayWorker)
         gpu_actors = []
 
         if num_replicas <= 1 or not use_group_process_group:
             # XDiT DP stays in one global group; xFuser derives DP ranks internally.
-            for local_rank in range(world_size):
+            for local_rank, device_id in enumerate(worker_device_ids):
                 gpu_actors.append(
                     gpu_actor.options(name=f"RayWorker:{local_rank}", **_ray_actor_device_options()).remote(
                         local_rank=local_rank,
-                        device_id=0,
+                        device_id=device_id,
                         parallel_dict=parallel_dict,
                     )
                 )
@@ -1505,13 +1509,14 @@ def make_ray_actor_fn(world_size, parallel_dict):
                 group_parallel_dict["use_group_process_group"] = True
 
                 for local_rank in range(shard_size):
+                    worker_index = group_id * shard_size + local_rank
                     gpu_actors.append(
                         gpu_actor.options(
                             name=f"RayWorker:{group_id}_{local_rank}",
                             **_ray_actor_device_options(),
                         ).remote(
                             local_rank=local_rank,
-                            device_id=0,
+                            device_id=worker_device_ids[worker_index],
                             parallel_dict=group_parallel_dict,
                         )
                     )

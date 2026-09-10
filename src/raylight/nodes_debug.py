@@ -127,7 +127,7 @@ class RayInitializerDebug:
             )
             raise RuntimeError(f"Ray connection failed: {e}")
 
-        ray_nccl_tester(world_size)
+        ray_nccl_tester(list(range(world_size)))
         ray_actor_fn = make_ray_actor_fn(world_size, self.parallel_dict)
         ray_actors = ray_actor_fn()
         return ([ray_actors, ray_actor_fn],)
