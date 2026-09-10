@@ -5,8 +5,7 @@ import folder_paths
 import ray
 
 # Must manually insert comfy package or ray cannot import raylight to cluster
-from comfy import sd, sample, utils
-from .distributed_worker.ray_worker import make_ray_actor_fn, ensure_fresh_actors, ray_nccl_tester
+from .distributed_worker.ray_worker import make_ray_actor_fn, ray_nccl_tester
 from .device_utils import device_count
 
 

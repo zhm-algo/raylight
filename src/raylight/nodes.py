@@ -15,10 +15,6 @@ import folder_paths
 from comfy.cli_args import args as comfy_args
 from yunchang.kernels import AttnType
 
-# For naming style with comfyui equivalent nodes use "[Name of Nodes] (Ray)"
-# Must manually insert comfy package or ray cannot import raylight to cluster
-from comfy import sd, sample, utils  # type: ignore
-
 from .distributed_worker.ray_worker import (
     make_ray_actor_fn,
     ensure_fresh_actors,

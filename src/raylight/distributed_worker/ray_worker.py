@@ -14,7 +14,6 @@ import ray
 import comfy.patcher_extension as pe
 
 from raylight.device_utils import (
-    current_device_index,
     empty_cache,
     get_device,
     get_device_type,
